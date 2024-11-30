@@ -1,6 +1,6 @@
 use std::env;
-use std::io::{self, Write};
-use std::process::{Command, ExitStatus};
+use std::io::{ self, Write };
+use std::process::{ Command, ExitStatus };
 
 fn main() {
     loop {
@@ -81,10 +81,7 @@ fn execute_command(command: &str, args: Vec<&str>) -> Result<(), String> {
         .map_err(|err| format!("Failed to execute '{}': {}", command, err))?;
 
     if !status.success() {
-        Err(format!(
-            "Command '{}' exited with status: {}",
-            command, status
-        ))
+        Err(format!("Command '{}' exited with status: {}", command, status))
     } else {
         Ok(())
     }
