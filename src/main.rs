@@ -1,9 +1,29 @@
-use std::env;
-use std::io::{ self, Write };
-use std::process::{ Command, ExitStatus };
+mod shell;
+mod utils;
+
+use shell::{ commands::execute_command, input::read_input, prompt::print_prompt };
+use shell::parse_input;
+use std::sync::atomic::{ AtomicBool, Ordering };
+use std::sync::Arc;
+use std::process;
 
 fn main() {
-    loop {
+    // Atomic flag to track if the shell should exit
+    let running = Arc::new(AtomicBool::new(true));
+
+    // Clone the flag for the Ctrl+C handler
+    let running_ctrlc = running.clone();
+
+    // Set up Ctrl+C handler
+    ctrlc
+        ::set_handler(move || {
+            println!("\nExiting rsh. Goodbye!");
+            running_ctrlc.store(false, Ordering::SeqCst);
+            process::exit(0); // Exit immediately to avoid lingering processes
+        })
+        .expect("Error setting Ctrl+C handler");
+
+    while running.load(Ordering::SeqCst) {
         // Display prompt
         if let Err(err) = print_prompt() {
             eprintln!("Error displaying prompt: {}", err);
@@ -43,46 +63,5 @@ fn main() {
         if let Err(err) = execute_command(command, args) {
             eprintln!("Error: {}", err);
         }
-    }
-}
-
-fn print_prompt() -> io::Result<()> {
-    print!("rsh> ");
-    io::stdout().flush()
-}
-
-fn read_input() -> io::Result<String> {
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(input)
-}
-
-fn parse_input(input: &str) -> Option<(&str, Vec<&str>)> {
-    let mut parts = input.split_whitespace();
-    let command = parts.next()?;
-    let args: Vec<&str> = parts.collect();
-    Some((command, args))
-}
-
-fn execute_command(command: &str, args: Vec<&str>) -> Result<(), String> {
-    // Handle built-in Windows commands
-    let (command, args): (&str, Vec<&str>) = if cfg!(target_os = "windows") {
-        ("cmd", vec!["/C", command].into_iter().chain(args).collect())
-    } else {
-        (command, args)
-    };
-
-    // Run the command
-    let status: ExitStatus = Command::new(command)
-        .args(&args)
-        .env("PATH", env::var("PATH").unwrap_or_default()) // Inherit PATH
-        .spawn()
-        .and_then(|mut child| child.wait())
-        .map_err(|err| format!("Failed to execute '{}': {}", command, err))?;
-
-    if !status.success() {
-        Err(format!("Command '{}' exited with status: {}", command, status))
-    } else {
-        Ok(())
     }
 }
