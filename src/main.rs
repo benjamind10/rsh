@@ -1,9 +1,13 @@
 mod shell;
 mod utils;
 
-use shell::{ commands::execute_command, completer::FilePathAndCommandCompleter };
+use shell::{
+    commands::execute_command,
+    completer::FilePathAndCommandCompleter,
+    prompt::print_prompt,
+    input::read_input,
+};
 use shell::parse_input;
-use rustyline::{ Editor, error::ReadlineError };
 use std::env;
 use std::sync::atomic::{ AtomicBool, Ordering };
 use std::sync::Arc;
@@ -13,6 +17,7 @@ fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let running_ctrlc = running.clone();
 
+    // Handle Ctrl+C
     ctrlc
         ::set_handler(move || {
             println!("\nExiting rsh. Goodbye!");
@@ -21,59 +26,58 @@ fn main() {
         })
         .expect("Error setting Ctrl+C handler");
 
-    let mut rl = Editor::<FilePathAndCommandCompleter>
-        ::new()
-        .expect("Failed to initialize rustyline");
-    rl.set_helper(Some(FilePathAndCommandCompleter::new()));
+    let completer = FilePathAndCommandCompleter::new();
 
     println!("Welcome to rsh! Type 'exit' to quit.");
 
     while running.load(Ordering::SeqCst) {
-        match rl.readline("rsh> ") {
-            Ok(input) => {
-                let input = input.trim().to_string();
-                rl.add_history_entry(&input);
+        // Display the prompt
+        if let Err(err) = print_prompt() {
+            eprintln!("Error displaying prompt: {}", err);
+            continue;
+        }
 
-                if input.eq_ignore_ascii_case("exit") {
-                    println!("Exiting rsh. Goodbye!");
-                    break;
-                }
-
-                if input.is_empty() {
-                    continue;
-                }
-
-                let (command, args) = match parse_input(&input) {
-                    Some((command, args)) => (command, args),
-                    None => {
-                        eprintln!("Invalid command format.");
-                        continue;
-                    }
-                };
-
-                if command == "cd" {
-                    // Handle the built-in `cd` command
-                    if let Some(dir) = args.first() {
-                        if let Err(err) = env::set_current_dir(dir) {
-                            eprintln!("Error: Failed to change directory to '{}': {}", dir, err);
-                        }
-                    } else {
-                        eprintln!("Error: 'cd' requires a directory argument.");
-                    }
-                } else {
-                    // Execute external commands
-                    if let Err(err) = execute_command(command, args) {
-                        eprintln!("Error: {}", err);
-                    }
-                }
-            }
-            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
-                println!("Exiting rsh. Goodbye!");
-                break;
-            }
+        // Read user input
+        let input = match read_input() {
+            Ok(input) => input.trim().to_string(),
             Err(err) => {
                 eprintln!("Error reading input: {}", err);
-                break;
+                continue;
+            }
+        };
+
+        // Handle exit command
+        if input.eq_ignore_ascii_case("exit") {
+            println!("Exiting rsh. Goodbye!");
+            break;
+        }
+
+        if input.is_empty() {
+            continue;
+        }
+
+        // Parse the input into command and arguments
+        let (command, args) = match parse_input(&input) {
+            Some((command, args)) => (command, args),
+            None => {
+                eprintln!("Invalid command format.");
+                continue;
+            }
+        };
+
+        // Handle built-in `cd` command
+        if command == "cd" {
+            if let Some(dir) = args.first() {
+                if let Err(err) = env::set_current_dir(dir) {
+                    eprintln!("Error: Failed to change directory to '{}': {}", dir, err);
+                }
+            } else {
+                eprintln!("Error: 'cd' requires a directory argument.");
+            }
+        } else {
+            // Execute external commands
+            if let Err(err) = execute_command(command, args) {
+                eprintln!("Error: {}", err);
             }
         }
     }
